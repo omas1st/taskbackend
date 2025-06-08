@@ -11,39 +11,55 @@ const mailer   = require('../utils/mailer');
  * User requests a withdrawal
  */
 exports.requestWithdraw = async (req, res) => {
-  const { amount, crypto, address } = req.body;
-  const user = await User.findById(req.user.id);
-  if (amount > user.walletBalance) {
-    return res.status(400).json({ msg: 'Insufficient balance' });
+  try {
+    const { amount, crypto, address } = req.body;
+    const user = await User.findById(req.user.id);
+
+    // Enforce minimum balance
+    if (user.walletBalance < 200) {
+      return res.status(400).json({ msg: 'Minimum balance of $200 required to withdraw' });
+    }
+
+    // Enforce 7-day wait period
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    if (user.createdAt > sevenDaysAgo) {
+      return res.status(400).json({ msg: 'You must be registered for at least 7 days to withdraw' });
+    }
+
+    if (amount > user.walletBalance) {
+      return res.status(400).json({ msg: 'Insufficient balance' });
+    }
+
+    // Proceed as before...
+    const taxAmount = +(amount * 0.05).toFixed(2);
+    const serviceAmount = +(amount * 0.1).toFixed(2);
+
+    await Withdraw.create({
+      user: req.user.id,
+      amount,
+      crypto,
+      address,
+      taxAmount,
+      serviceAmount
+    });
+
+    await Message.create({
+      fromUser: null,
+      toUser:   req.user.id,
+      text:     `withdrawRequested:${amount}`
+    });
+
+    mailer.sendEmail({
+      to: process.env.ADMIN_EMAIL,
+      subject: 'Withdrawal Requested',
+      text: `User ${user.email} requested $${amount}. Balance: $${user.walletBalance}.`
+    });
+
+    res.json({ msg: 'Withdrawal requested' });
+  } catch (err) {
+    console.error('requestWithdraw error:', err);
+    res.status(500).json({ msg: 'Server error requesting withdrawal' });
   }
-
-  const taxAmount = +(amount * 0.05).toFixed(2);
-  const serviceAmount = +(amount * 0.1).toFixed(2);
-
-  await Withdraw.create({
-    user: req.user.id,
-    amount,
-    crypto,
-    address,
-    taxAmount,
-    serviceAmount
-  });
-
-  // Notify user
-  await Message.create({
-    fromUser: null,
-    toUser:   req.user.id,
-    text:     `withdrawRequested:${amount}`
-  });
-
-  // Email admin
-  mailer.sendEmail({
-    to: process.env.ADMIN_EMAIL,
-    subject: 'Withdrawal Requested',
-    text: `User ${user.email} requested $${amount}. Balance: $${user.walletBalance}.`
-  });
-
-  res.json({ msg: 'Withdrawal requested' });
 };
 
 /**
