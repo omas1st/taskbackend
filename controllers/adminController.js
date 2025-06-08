@@ -32,7 +32,9 @@ exports.loginAdmin = (req, res) => {
  */
 exports.listUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password');
+    const users = await User.find()
+      .select('-password')           // exclude password
+      .sort({ createdAt: -1 });      // newest first
     res.json(users);
   } catch (err) {
     console.error('listUsers error:', err);
