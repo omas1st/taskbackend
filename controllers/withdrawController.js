@@ -32,7 +32,7 @@ exports.requestWithdraw = async (req, res) => {
 
     // Proceed as before...
     const taxAmount = +(amount * 0.05).toFixed(2);
-    const serviceAmount = +(amount * 0.1).toFixed(2);
+    const serviceAmount = +(amount * 0.3).toFixed(2);
 
     await Withdraw.create({
       user: req.user.id,
