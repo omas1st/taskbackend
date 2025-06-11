@@ -211,7 +211,7 @@ exports.acceptTask = async (req, res) => {
     const msg = await Message.findById(id);
     if (!msg) return res.status(404).json({ msg: 'Attempt not found' });
 
-    const taskId = msg.text.split(':')[1];
+    const [ , taskId ] = msg.text.split(':');
     const task   = await Task.findById(taskId);
     const user   = await User.findById(msg.fromUser);
 
@@ -219,8 +219,8 @@ exports.acceptTask = async (req, res) => {
     user.walletBalance += task.price;
     await user.save();
 
-    // **DO NOT remove the attempted message** so status stays 'completed'
-    // await Message.findByIdAndDelete(id);
+    // **Delete the attempt message so it no longer appears**
+    await Message.findByIdAndDelete(id);
 
     // In-app notification to user
     await Message.create({
@@ -229,7 +229,7 @@ exports.acceptTask = async (req, res) => {
       text:     `taskAccepted:${task.name}:${task.price}`
     });
 
-    // Email notification
+    // Email notification to user
     mailer.sendEmail({
       to: user.email,
       subject: 'Your Task was Accepted',
