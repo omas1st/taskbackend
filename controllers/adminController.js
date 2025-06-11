@@ -168,18 +168,22 @@ exports.deleteTask = async (req, res) => {
  */
 exports.listCompleted = async (req, res) => {
   try {
-    // fetch only attempted messages
+    // Fetch all "attempted:<taskId>" messages
     const attempts = await Message.find({ text: /^attempted:/ });
 
+    const seen = new Set();
     const formatted = [];
+
     for (let msg of attempts) {
-      const parts = msg.text.split(':');
-      if (parts.length < 2) continue;              // skip malformed
-      const taskId = parts[1];
+      const [_, taskId] = msg.text.split(':');
+      const userId = msg.fromUser.toString();
+      const key = `${userId}:${taskId}`;
+      if (seen.has(key)) continue;  // skip duplicates
+      seen.add(key);
+
       const task = await Task.findById(taskId);
-      if (!task) continue;                         // skip missing task
       const user = await User.findById(msg.fromUser);
-      if (!user) continue;                         // skip missing user
+      if (!task || !user) continue; // skip if missing
 
       formatted.push({
         id:          msg._id,
