@@ -7,36 +7,40 @@ const mailer = require('../utils/mailer');
  * GET /api/tasks
  */
 exports.listTasks = async (req, res) => {
-  const tasks = await Task.find();
-  const msgs = await Message.find({ fromUser: req.user.id });
-  const started = new Set(msgs.filter(m => m.text.startsWith('started:')).map(m => m.text.split(':')[1]));
-  const attempted = new Set(msgs.filter(m => m.text.startsWith('attempted:')).map(m => m.text.split(':')[1]));
+  try {
+    const tasks = await Task.find();
+    const msgs  = await Message.find({ fromUser: req.user.id });
 
-  const statusMap = {};
-  msgs.forEach(m => {
-    const [action, taskId] = m.text.split(':');
-    if (!statusMap[taskId]) statusMap[taskId] = {};
-    statusMap[taskId][action] = m.createdAt;
-  });
+    // build map of taskId → { startedAt, attemptedAt }
+    const statusMap = {};
+    msgs.forEach(m => {
+      const [action, taskId] = m.text.split(':');
+      if (!statusMap[taskId]) statusMap[taskId] = {};
+      statusMap[taskId][action] = m.createdAt;
+    });
 
-  const result = tasks.map(t => {
-    const sm = statusMap[t._id] || {};
-    let status = 'not-started';
-    if (sm.attempted) status = 'completed';
-    else if (sm.started) status = 'in-progress';
+    const result = tasks.map(t => {
+      const sm = statusMap[t._id] || {};
+      let status = 'not-started';
+      if (sm.attempted) status = 'completed';
+      else if (sm.started) status = 'in-progress';
 
-    return {
-      _id:       t._id,
-      name:      t.name,
-      description:t.description,
-      price:     t.price,
-      url:       t.url,
-      status,
-      startedAt: sm.started || null
-    };
-  });
+      return {
+        _id:       t._id,
+        name:      t.name,
+        description: t.description,
+        price:     t.price,
+        url:       t.url,
+        status,
+        startedAt: sm.started || null
+      };
+    });
 
-  res.json(result);
+    res.json(result);
+  } catch (err) {
+    console.error('listTasks error:', err);
+    res.status(500).json({ msg: 'Server error listing tasks' });
+  }
 };
 
 /**
