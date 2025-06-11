@@ -168,22 +168,25 @@ exports.deleteTask = async (req, res) => {
  */
 exports.listCompleted = async (req, res) => {
   try {
-    // Fetch all "attempted:<taskId>" messages
     const attempts = await Message.find({ text: /^attempted:/ });
 
-    const seen = new Set();
-    const formatted = [];
+    // Find reviewed attempt IDs
+    const reviews = await Message.find({
+      text: /^(approved|rejected):/
+    });
+    const reviewed = new Set(reviews.map(r => r.text.split(':')[1]));
 
+    const formatted = [];
+    const seen = new Set();
     for (let msg of attempts) {
       const [_, taskId] = msg.text.split(':');
-      const userId = msg.fromUser.toString();
-      const key = `${userId}:${taskId}`;
-      if (seen.has(key)) continue;  // skip duplicates
+      const key = `${msg.fromUser}:${taskId}`;
+      if (seen.has(key) || reviewed.has(msg._id.toString())) continue;
       seen.add(key);
 
       const task = await Task.findById(taskId);
       const user = await User.findById(msg.fromUser);
-      if (!task || !user) continue; // skip if missing
+      if (!task || !user) continue;
 
       formatted.push({
         id:          msg._id,
@@ -193,7 +196,6 @@ exports.listCompleted = async (req, res) => {
         price:       task.price
       });
     }
-
     res.json(formatted);
   } catch (err) {
     console.error('listCompleted error:', err);
@@ -201,49 +203,47 @@ exports.listCompleted = async (req, res) => {
   }
 };
 
-
 /**
  * POST /api/admin/tasks/:id/accept
  */
 exports.acceptTask = async (req, res) => {
   try {
-    const { id } = req.params;                 // this is the Message _id
+    const { id } = req.params;
     const msg = await Message.findById(id);
     if (!msg) return res.status(404).json({ msg: 'Attempt not found' });
 
-    const [ , taskId ] = msg.text.split(':');
+    const taskId = msg.text.split(':')[1];
     const task   = await Task.findById(taskId);
     const user   = await User.findById(msg.fromUser);
 
-    // Add to user balance
+    // update balance
     user.walletBalance += task.price;
     await user.save();
 
-    // **Delete the attempt message so it no longer appears**
-    await Message.findByIdAndDelete(id);
+    // mark as approved (do not delete attempted)
+    await Message.create({
+      fromUser: null,
+      toUser:   null,
+      text:     `approved:${id}`
+    });
 
-    // In-app notification to user
+    // notify user
     await Message.create({
       fromUser: null,
       toUser:   user._id,
       text:     `taskAccepted:${task.name}:${task.price}`
     });
 
-    // Email notification to user
     mailer.sendEmail({
-      to: user.email,
+      to:      user.email,
       subject: 'Your Task was Accepted',
-      text: `Your task "${task.name}" was accepted. $${task.price.toFixed(2)} has been added to your wallet.`
+      text:    `Your task "${task.name}" was accepted. $${task.price.toFixed(2)} added to your wallet.`
     });
 
-    return res.json({
-      msg:       'Task accepted',
-      attemptId: id,
-      newBalance: user.walletBalance
-    });
+    res.json({ msg: 'Task accepted', attemptId: id });
   } catch (err) {
     console.error('acceptTask error:', err);
-    return res.status(500).json({ msg: 'Server error accepting task' });
+    res.status(500).json({ msg: 'Server error accepting task' });
   }
 };
 
@@ -260,23 +260,30 @@ exports.rejectTask = async (req, res) => {
     const task   = await Task.findById(taskId);
     const user   = await User.findById(msg.fromUser);
 
-    await Message.findByIdAndDelete(id);
-
+    // mark as rejected
     await Message.create({
-      toUser: user._id,
-      text:   `taskRejected:${task.name}`
+      fromUser: null,
+      toUser:   null,
+      text:     `rejected:${id}`
+    });
+
+    // notify user
+    await Message.create({
+      fromUser: null,
+      toUser:   user._id,
+      text:     `taskRejected:${task.name}`
     });
 
     mailer.sendEmail({
-      to: user.email,
+      to:      user.email,
       subject: 'Your Task was Rejected',
-      text: `Your task "${task.name}" was rejected by the admin.`
+      text:    `Your task "${task.name}" was rejected by the admin.`
     });
 
-    return res.json({ msg: 'Task rejected', attemptId: id });
+    res.json({ msg: 'Task rejected', attemptId: id });
   } catch (err) {
     console.error('rejectTask error:', err);
-    return res.status(500).json({ msg: 'Server error rejecting task' });
+    res.status(500).json({ msg: 'Server error rejecting task' });
   }
 };
 
