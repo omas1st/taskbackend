@@ -208,7 +208,7 @@ exports.listCompleted = async (req, res) => {
  */
 exports.acceptTask = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params;                 // Message _id for attempted
     const msg = await Message.findById(id);
     if (!msg) return res.status(404).json({ msg: 'Attempt not found' });
 
@@ -216,28 +216,25 @@ exports.acceptTask = async (req, res) => {
     const task   = await Task.findById(taskId);
     const user   = await User.findById(msg.fromUser);
 
-    // update balance
+    // Update user balance
     user.walletBalance += task.price;
     await user.save();
 
-    // mark as approved (do not delete attempted)
-    await Message.create({
-      fromUser: null,
-      toUser:   null,
-      text:     `approved:${id}`
-    });
+    // Remove the attempt message
+    await Message.findByIdAndDelete(id);
 
-    // notify user
+    // Notify the user in-app
     await Message.create({
-      fromUser: null,
+      fromUser: null,        // system notification
       toUser:   user._id,
       text:     `taskAccepted:${task.name}:${task.price}`
     });
 
+    // Email the user
     mailer.sendEmail({
       to:      user.email,
-      subject: 'Your Task was Accepted',
-      text:    `Your task "${task.name}" was accepted. $${task.price.toFixed(2)} added to your wallet.`
+      subject: 'Your Task Was Accepted',
+      text:    `Congratulations! Your task "${task.name}" has been accepted. $${task.price.toFixed(2)} has been credited to your wallet.`
     });
 
     res.json({ msg: 'Task accepted', attemptId: id });
@@ -260,24 +257,21 @@ exports.rejectTask = async (req, res) => {
     const task   = await Task.findById(taskId);
     const user   = await User.findById(msg.fromUser);
 
-    // mark as rejected
-    await Message.create({
-      fromUser: null,
-      toUser:   null,
-      text:     `rejected:${id}`
-    });
+    // Remove the attempt message
+    await Message.findByIdAndDelete(id);
 
-    // notify user
+    // Notify the user in-app
     await Message.create({
-      fromUser: null,
+      fromUser: null,        // system notification
       toUser:   user._id,
       text:     `taskRejected:${task.name}`
     });
 
+    // Email the user
     mailer.sendEmail({
       to:      user.email,
-      subject: 'Your Task was Rejected',
-      text:    `Your task "${task.name}" was rejected by the admin.`
+      subject: 'Your Task Was Rejected',
+      text:    `We’re sorry. Your task "${task.name}" has been rejected by the admin.`
     });
 
     res.json({ msg: 'Task rejected', attemptId: id });
