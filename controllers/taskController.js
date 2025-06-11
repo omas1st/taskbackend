@@ -12,14 +12,29 @@ exports.listTasks = async (req, res) => {
   const started = new Set(msgs.filter(m => m.text.startsWith('started:')).map(m => m.text.split(':')[1]));
   const attempted = new Set(msgs.filter(m => m.text.startsWith('attempted:')).map(m => m.text.split(':')[1]));
 
-  const result = tasks.map(t => ({
-    ...t.toObject(),
-    status: attempted.has(t._id.toString())
-      ? 'completed'
-      : started.has(t._id.toString())
-      ? 'in-progress'
-      : 'not-started'
-  }));
+  const statusMap = {};
+  msgs.forEach(m => {
+    const [action, taskId] = m.text.split(':');
+    if (!statusMap[taskId]) statusMap[taskId] = {};
+    statusMap[taskId][action] = m.createdAt;
+  });
+
+  const result = tasks.map(t => {
+    const sm = statusMap[t._id] || {};
+    let status = 'not-started';
+    if (sm.attempted) status = 'completed';
+    else if (sm.started) status = 'in-progress';
+
+    return {
+      _id:       t._id,
+      name:      t.name,
+      description:t.description,
+      price:     t.price,
+      url:       t.url,
+      status,
+      startedAt: sm.started || null
+    };
+  });
 
   res.json(result);
 };
